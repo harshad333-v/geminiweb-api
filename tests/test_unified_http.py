@@ -66,7 +66,8 @@ class UnifiedHTTPTests(unittest.TestCase):
         status, response = self.request_json("/v1/capabilities")
         self.assertEqual(status, 200)
         self.assertEqual(response["object"], "capability.list")
-        self.assertIsInstance(response["data"], list)
+        self.assertIsInstance(response["data"], dict)
+        self.assertIn("chat.completions", response["data"])
 
 
 if __name__ == "__main__":
