@@ -1,14 +1,15 @@
 """Capability metadata for the unified API surface."""
+import os
 CAPABILITIES = {
     "chat.completions": {"available": True, "endpoint": "/v1/chat/completions"},
     "responses": {"available": True, "endpoint": "/v1/responses"},
     "models.list": {"available": True, "endpoint": "/v1/models"},
     "documents.extract": {"available": True, "endpoint": "/v1/extractions"},
     "files.upload": {"available": True, "endpoint": "/v1/files"},
-    "images.generations": {"available": False, "endpoint": "/v1/images/generations",
-                           "reason": "No verified image-generation provider is configured."},
-    "images.edits": {"available": False, "endpoint": "/v1/images/edits",
-                     "reason": "No verified image-editing provider is configured."},
+    "images.generations": {"available": bool(os.environ.get("GEMINI_WEB2API_IMAGE_BASE_URL", "").strip()), "endpoint": "/v1/images/generations",
+                           "reason": None if os.environ.get("GEMINI_WEB2API_IMAGE_BASE_URL", "").strip() else "Set GEMINI_WEB2API_IMAGE_BASE_URL to enable image generation."},
+    "images.edits": {"available": bool(os.environ.get("GEMINI_WEB2API_IMAGE_BASE_URL", "").strip()), "endpoint": "/v1/images/edits",
+                     "reason": None if os.environ.get("GEMINI_WEB2API_IMAGE_BASE_URL", "").strip() else "Set GEMINI_WEB2API_IMAGE_BASE_URL to enable image editing."},
     "realtime.websocket": {"available": True, "endpoint": "/v1/ws"},
 }
 
