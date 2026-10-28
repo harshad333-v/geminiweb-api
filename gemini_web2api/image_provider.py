@@ -29,7 +29,9 @@ def _base_url():
 
 
 def _request(path, body, content_type="application/json"):
-    url = _base_url() + path
+    base = _base_url()
+    endpoint = path[3:] if base.endswith("/v1") and path.startswith("/v1/") else path
+    url = base + endpoint
     headers = {"Content-Type": content_type, "Accept": "application/json"}
     key = os.environ.get("GEMINI_WEB2API_IMAGE_API_KEY", "").strip()
     if key:
