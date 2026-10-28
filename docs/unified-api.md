@@ -28,7 +28,7 @@ For public deployment, configure API keys, HTTPS termination, a trusted CORS all
 | POST | `/v1/responses` | Existing Responses API |
 | POST | `/v1/files` | Store UTF-8 text or base64 file content |
 | POST | `/v1/extractions` | Extract supported document content |
-| GET | `/v1/jobs/{id}` | Read extraction job status/result |
+| GET | `/v1/jobs/{id}` | Read extraction job status/result |\n| GET | `/v1/jobs/{id}/result` | Read a completed extraction result |
 | DELETE | `/v1/jobs/{id}` | Cancel a queued/running extraction job |
 | POST | `/v1/images/generations` | Forward an OpenAI-compatible generation request when configured |
 | POST | `/v1/images/edits` | Forward a JSON base64 image-edit request when configured |
@@ -105,4 +105,4 @@ The server responds with a JSON `pong`, `chat.completion`, or `error` event. Thi
 - No persistent chat-session store, shared distributed quotas, admin dashboard, OCR worker, or multi-replica job broker is included yet.
 - Image generation/editing require an independently configured provider; Gemini Web itself is not assumed to support these operations.
 - The API uses a reverse-engineered Gemini Web integration. Upstream changes, account restrictions, and quotas can affect availability.
-- The existing upstream image URL fetch path still requires additional SSRF hardening before accepting arbitrary untrusted public input at scale.
+- The upstream image URL fetch path now rejects non-global IP destinations, validates redirects, and caps response size. DNS rebinding and proxy-specific routing still require deployment-level controls; do not treat this as a substitute for an egress firewall.
