@@ -65,7 +65,8 @@ class SecurityHelperTests(unittest.TestCase):
             result = save_upload(root, b"hello", "hello.txt")
             self.assertTrue(result["id"].startswith("file_"))
             self.assertTrue(os.path.isfile(result["path"]))
-            self.assertEqual(open(result["path"], "rb").read(), b"hello")
+            with open(result["path"], "rb") as handle:
+                self.assertEqual(handle.read(), b"hello")
 
 
 class SessionStorageTests(unittest.TestCase):
