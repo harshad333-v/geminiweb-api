@@ -4,7 +4,9 @@ import tempfile
 import unittest
 
 from gemini_web2api.documents import DocumentError, extract_document
-from gemini_web2api.security import decode_file_content, safe_filename, save_upload\nfrom gemini_web2api.multimodal import _validate_public_image_url\nfrom gemini_web2api.image_provider import ImageProviderError, generate_image
+from gemini_web2api.security import decode_file_content, safe_filename, save_upload
+from gemini_web2api.multimodal import _validate_public_image_url
+from gemini_web2api.image_provider import ImageProviderError, generate_image
 
 
 class DocumentExtractionTests(unittest.TestCase):
