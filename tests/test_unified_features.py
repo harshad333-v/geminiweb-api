@@ -7,6 +7,7 @@ from gemini_web2api.documents import DocumentError, extract_document
 from gemini_web2api.security import decode_file_content, safe_filename, save_upload
 from gemini_web2api.multimodal import _validate_public_image_url
 from gemini_web2api.image_provider import ImageProviderError, generate_image
+from gemini_web2api.storage import append_messages, create_session, delete_session, get_session, list_sessions
 
 
 class DocumentExtractionTests(unittest.TestCase):
@@ -69,3 +70,25 @@ class SecurityHelperTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SessionStorageTests(unittest.TestCase):
+    def test_session_round_trip_is_owner_scoped(self):
+        with tempfile.TemporaryDirectory() as root:
+            old_path = os.environ.get("GEMINI_WEB2API_DB_PATH")
+            os.environ["GEMINI_WEB2API_DB_PATH"] = os.path.join(root, "sessions.sqlite3")
+            try:
+                created = create_session("owner-a", "Test session")
+                self.assertTrue(created["id"].startswith("sess_"))
+                self.assertTrue(append_messages("owner-a", created["id"], [{"role": "user", "content": "hello"}]))
+                loaded = get_session("owner-a", created["id"])
+                self.assertEqual(loaded["messages"][0]["content"], "hello")
+                self.assertIsNone(get_session("owner-b", created["id"]))
+                self.assertEqual(len(list_sessions("owner-a")), 1)
+                self.assertFalse(delete_session("owner-b", created["id"]))
+                self.assertTrue(delete_session("owner-a", created["id"]))
+            finally:
+                if old_path is None:
+                    os.environ.pop("GEMINI_WEB2API_DB_PATH", None)
+                else:
+                    os.environ["GEMINI_WEB2API_DB_PATH"] = old_path
