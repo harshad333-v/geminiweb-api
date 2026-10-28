@@ -108,7 +108,6 @@ The server responds with a JSON `pong`, `chat.completion`, or `error` event. Thi
 
 ## Operational limitations
 
-- Request rate limits, usage totals, and job state are in process memory. They reset on restart and are not coordinated across replicas.
 - Uploaded files persist on local disk and include per-key ownership metadata; define retention/cleanup for production.
 - Job state, request quotas, and usage counters are in process memory; they reset on restart and are not coordinated across replicas. No admin dashboard, OCR worker, or multi-replica job broker is included yet.
 - Image generation/editing require an independently configured provider; Gemini Web itself is not assumed to support these operations.
