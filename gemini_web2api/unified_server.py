@@ -493,3 +493,26 @@ class UnifiedGeminiHandler(GeminiHandler):
             head += bytes([127]) + struct.pack("!Q", length)
         self.wfile.write(head + payload)
         self.wfile.flush()
+
+
+class UnifiedThreadedServer(ThreadedServer):
+    """Bound the number of active request threads on public deployments."""
+    daemon_threads = True
+    allow_reuse_address = True
+    _request_slots = threading.BoundedSemaphore(64)
+
+    def process_request(self, request, client_address):
+        if not self._request_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._request_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._request_slots.release()
