@@ -19,11 +19,11 @@ from urllib.parse import urlsplit
 from .capabilities import public_capabilities
 from .config import CONFIG
 from .documents import DocumentError, extract_document
-from .gemini import generate
+from .gemini import generate, log
 from .models import MODELS, resolve_model
 from .image_provider import ImageProviderError, edit_image, generate_image
 from .security import decode_file_content, safe_filename, save_upload
-from .server import GeminiHandler
+from .server import GeminiHandler, ThreadedServer
 
 MAX_BODY_DEFAULT = 10 * 1024 * 1024
 _UPLOAD_ROOT = Path(os.environ.get("GEMINI_WEB2API_UPLOAD_DIR", "./data/uploads"))
@@ -221,41 +221,71 @@ class UnifiedGeminiHandler(GeminiHandler):
 
     def do_POST(self):
         path = urlsplit(self.path).path
-        if path.startswith("/v1/") and self._rate_limited():
+        api_path = path.startswith("/v1")
+        if api_path and self._rate_limited():
             self.send_json(_error("rate limit exceeded", "rate_limit_error"), 429)
             return
-        raw_length = self.headers.get("Content-Length", "0")
-        try:
-            if int(raw_length) > int(CONFIG.get("max_request_bytes", MAX_BODY_DEFAULT)):
-                self.send_json(_error("request body exceeds configured limit"), 413)
-                return
-        except ValueError:
-            self.send_json(_error("invalid Content-Length"), 400)
-            return
-        if path not in ("/v1/files", "/v1/extractions", "/v1/images/generations", "/v1/images/edits"):
-            super().do_POST()
-            return
-        if not self._authorized():
+        if api_path and not self._authorized():
             self.send_json(_error("invalid api key", "authentication_error"), 401)
             return
-        req = self._json_request()
-        if req is None:
+        try:
+            raw_length = self.headers.get("Content-Length", "0")
+            try:
+                if int(raw_length) > int(CONFIG.get("max_request_bytes", MAX_BODY_DEFAULT)):
+                    self.send_json(_error("request body exceeds configured limit"), 413)
+                    return
+            except ValueError:
+                self.send_json(_error("invalid Content-Length"), 400)
+                return
+            body = self._read_request_body()
+        except ValueError as exc:
+            status = 413 if "exceeds" in str(exc) else 400
+            self.send_json(_error(str(exc)), status)
             return
         try:
             if path == "/v1/files":
-                self._create_file(req)
+                req = self._parse_body(body)
+                if not isinstance(req, dict):
+                    self.send_json(_error("request body must be a valid JSON object"), 400)
+                else:
+                    self._create_file(req)
             elif path == "/v1/extractions":
-                self._create_extraction(req)
+                req = self._parse_body(body)
+                if not isinstance(req, dict):
+                    self.send_json(_error("request body must be a valid JSON object"), 400)
+                else:
+                    self._create_extraction(req)
             elif path == "/v1/images/generations":
-                self.send_json(generate_image(req))
+                req = self._parse_body(body)
+                if not isinstance(req, dict):
+                    self.send_json(_error("request body must be a valid JSON object"), 400)
+                else:
+                    self.send_json(generate_image(req))
             elif path == "/v1/images/edits":
-                self.send_json(edit_image(req))
+                req = self._parse_body(body)
+                if not isinstance(req, dict):
+                    self.send_json(_error("request body must be a valid JSON object"), 400)
+                else:
+                    self.send_json(edit_image(req))
+            elif path == "/v1/chat/completions":
+                self._handle_chat(body)
+            elif path == "/v1/responses":
+                self._handle_responses(body)
+            elif ":streamGenerateContent" in path:
+                self._handle_google_generate(body, stream=True)
+            elif ":generateContent" in path:
+                self._handle_google_generate(body, stream=False)
+            else:
+                self.send_json(_error("not found", "not_found_error"), 404)
         except ImageProviderError as exc:
             self.send_json(_error(str(exc), "provider_error"), exc.status)
         except (ValueError, DocumentError) as exc:
             self.send_json(_error(str(exc)), 400)
+        except (BrokenPipeError, ConnectionResetError):
+            return
         except Exception as exc:
-            self.send_json(_error("internal processing error: " + str(exc), "server_error"), 500)
+            log("Unified POST error: " + type(exc).__name__ + ": " + str(exc))
+            self.send_json(_error("internal server error", "server_error"), 500)
 
     def do_DELETE(self):
         path = urlsplit(self.path).path
