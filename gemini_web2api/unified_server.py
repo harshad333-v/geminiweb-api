@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import socket
 import struct
 import threading
@@ -35,6 +36,35 @@ def _error(message, code="invalid_request_error"):
 
 class UnifiedGeminiHandler(GeminiHandler):
     """Adds security defaults, health, file/document endpoints and WebSocket chat."""
+
+    def _identity(self):
+        """Return a non-reversible tenant identifier for files and jobs."""
+        auth = self.headers.get("Authorization", "")
+        key = auth[7:] if auth.startswith("Bearer ") else ""
+        key = key or self.headers.get("x-api-key", "") or self.headers.get("x-goog-api-key", "")
+        if not key and "?" in self.path:
+            for pair in self.path.split("?", 1)[1].split("&"):
+                if pair.startswith("key="):
+                    key = pair[4:]
+                    break
+        if key:
+            return hashlib.sha256(key.encode("utf-8")).hexdigest()
+        ip = self.client_address[0] if self.client_address else "local"
+        return "local:" + ip
+
+    def send_json(self, data, status=200):
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        origin = self.headers.get("Origin", "")
+        allowed = CONFIG.get("cors_origins", ["http://localhost", "http://127.0.0.1"])
+        if origin and ("*" in allowed or origin in allowed):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _authorized(self):
         keys = CONFIG.get("api_keys") or []
@@ -133,7 +163,7 @@ class UnifiedGeminiHandler(GeminiHandler):
             job_id = path.rsplit("/", 1)[-1]
             with _JOBS_LOCK:
                 job = _JOBS.get(job_id)
-                snapshot = dict(job) if job else None
+                snapshot = dict(job) if job and job.get("owner_id") == self._identity() else None
             if not snapshot:
                 self.send_json(_error("job not found", "not_found_error"), 404)
             else:
@@ -180,7 +210,7 @@ class UnifiedGeminiHandler(GeminiHandler):
         job_id = path.rsplit("/", 1)[-1]
         with _JOBS_LOCK:
             job = _JOBS.get(job_id)
-            if not job:
+            if not job or job.get("owner_id") != self._identity():
                 self.send_json(_error("job not found", "not_found_error"), 404)
                 return
             if job.get("status") in ("succeeded", "failed", "cancelled"):
@@ -200,20 +230,22 @@ class UnifiedGeminiHandler(GeminiHandler):
         record.pop("path", None)
         file_path = _UPLOAD_ROOT / (record["id"] + ".bin")
         metadata = {"id": record["id"], "filename": filename, "bytes": len(data),
-                    "created_at": int(time.time()), "path": str(file_path)}
+                    "created_at": int(time.time()), "path": str(file_path), "owner_id": self._identity()}
         (_UPLOAD_ROOT / (record["id"] + ".meta.json")).write_text(
             json.dumps(metadata), encoding="utf-8")
         self.send_json({"id": record["id"], "object": "file", "filename": filename,
                         "bytes": len(data), "purpose": req.get("purpose", "extraction")}, 201)
 
     def _load_file(self, file_id):
-        if not isinstance(file_id, str) or not file_id.startswith("file_") or not file_id.replace("_", "").isalnum():
+        if not isinstance(file_id, str) or not re.fullmatch(r"file_[A-Za-z0-9_-]{1,64}", file_id):
             raise ValueError("invalid file_id")
         meta_path = _UPLOAD_ROOT / (file_id + ".meta.json")
         data_path = _UPLOAD_ROOT / (file_id + ".bin")
         if not meta_path.is_file() or not data_path.is_file():
             raise ValueError("file not found")
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if meta.get("owner_id") != self._identity():
+            raise ValueError("file not found")
         data = data_path.read_bytes()
         if len(data) > int(CONFIG.get("max_upload_bytes", MAX_BODY_DEFAULT)):
             raise ValueError("stored file exceeds configured upload limit")
@@ -227,7 +259,7 @@ class UnifiedGeminiHandler(GeminiHandler):
             job_id = "job_" + uuid.uuid4().hex
             job = {"id": job_id, "object": "job", "status": "queued",
                    "created_at": int(time.time()), "result": None, "error": None,
-                   "cancel_requested": False}
+                   "cancel_requested": False, "owner_id": self._identity()}
             with _JOBS_LOCK:
                 _JOBS[job_id] = job
             thread = threading.Thread(target=self._run_extraction_job, args=(job_id, dict(req)), daemon=True)
