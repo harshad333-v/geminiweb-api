@@ -53,6 +53,9 @@ def extract_document(filename, data, max_bytes=10 * 1024 * 1024):
     if ext == ".docx":
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                info = archive.getinfo("word/document.xml")
+                if info.file_size > max_bytes:
+                    raise DocumentError("expanded DOCX XML exceeds configured size limit")
                 raw = archive.read("word/document.xml")
             root = ET.fromstring(raw)
             ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
