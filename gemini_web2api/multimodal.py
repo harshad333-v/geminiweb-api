@@ -1,12 +1,14 @@
 """Multimodal: Scotty resumable upload for Gemini image input."""
 import json
 import base64
+import ipaddress
+import socket
 import urllib.request
 import urllib.parse
 import time
 import ssl
 import re
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 
 from .config import CONFIG
 from .gemini import load_cookie, make_sapisidhash, _get_ssl_ctx, log
@@ -152,24 +154,58 @@ def upload_image(image_bytes: bytes, filename: str = "image.png", mime_type: str
     return file_ref
 
 
-def fetch_image_bytes(url: str) -> bytes:
-    """Fetch image from URL."""
+def _validate_public_image_url(url: str):
+    """Reject obvious SSRF targets before any outbound image fetch."""
     parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        log(f"Image fetch skipped for unsupported URL scheme: {parsed.scheme or 'none'}")
-        return b""
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("image URL must be an absolute HTTP(S) URL")
+    if parsed.username or parsed.password:
+        raise ValueError("credentials are not allowed in image URLs")
+    if parsed.port not in (None, 80, 443):
+        raise ValueError("image URL port must be 80 or 443")
+    host = parsed.hostname.rstrip(".")
     try:
+        addresses = {item[4][0] for item in socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80),
+                                                              type=socket.SOCK_STREAM)}
+    except OSError as exc:
+        raise ValueError("image host could not be resolved") from exc
+    if not addresses:
+        raise ValueError("image host did not resolve")
+    for address in addresses:
+        ip = ipaddress.ip_address(address.split("%", 1)[0])
+        if not ip.is_global:
+            raise ValueError("image URLs may not target private or reserved IP addresses")
+    return parsed
+
+
+class _SafeImageRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        target = urljoin(req.full_url, newurl)
+        _validate_public_image_url(target)
+        return super().redirect_request(req, fp, code, msg, headers, target)
+
+
+def fetch_image_bytes(url: str) -> bytes:
+    """Fetch an image from a public HTTP(S) URL with redirect and size checks."""
+    try:
+        _validate_public_image_url(url)
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         proxy = CONFIG.get("proxy")
+        handlers = [_SafeImageRedirectHandler(), urllib.request.HTTPSHandler(context=_get_ssl_ctx())]
         if proxy:
-            opener = urllib.request.build_opener(
-                urllib.request.ProxyHandler({"http": proxy, "https": proxy}),
-                urllib.request.HTTPSHandler(context=_get_ssl_ctx()),
-            )
-            resp = opener.open(req, timeout=30)
-        else:
-            resp = urllib.request.urlopen(req, context=_get_ssl_ctx(), timeout=30)
-        return resp.read()
+            handlers.insert(0, urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+        opener = urllib.request.build_opener(*handlers)
+        with opener.open(req, timeout=15) as response:
+            content_type = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
+            if content_type and not content_type.startswith("image/"):
+                log("Image fetch rejected non-image Content-Type")
+                return b""
+            max_bytes = int(CONFIG.get("max_image_fetch_bytes", 10 * 1024 * 1024))
+            data = response.read(max_bytes + 1)
+            if len(data) > max_bytes:
+                log("Image fetch rejected: response exceeds configured size limit")
+                return b""
+            return data
     except Exception as e:
-        log(f"Image fetch failed: {e}")
+        log(f"Image fetch failed or was rejected: {type(e).__name__}: {e}")
         return b""
