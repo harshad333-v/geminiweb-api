@@ -195,7 +195,9 @@ class UnifiedGeminiHandler(GeminiHandler):
             if not self._authorized():
                 self.send_json(_error("invalid api key", "authentication_error"), 401)
                 return
-            job_id = path.rsplit("/", 1)[-1]
+            parts = path.strip("/").split("/")
+            result_only = len(parts) == 4 and parts[-1] == "result"
+            job_id = parts[-2] if result_only else parts[-1]
             with _JOBS_LOCK:
                 job = _JOBS.get(job_id)
                 snapshot = dict(job) if job and job.get("owner_id") == self._identity() else None
@@ -204,7 +206,13 @@ class UnifiedGeminiHandler(GeminiHandler):
             else:
                 snapshot.pop("owner_key", None)
                 snapshot.pop("owner_id", None)
-                self.send_json(snapshot)
+                if result_only:
+                    if snapshot.get("status") != "succeeded":
+                        self.send_json(_error("job result is not available yet", "conflict_error"), 409)
+                    else:
+                        self.send_json({"id": job_id, "status": snapshot["status"], "result": snapshot.get("result")})
+                else:
+                    self.send_json(snapshot)
             return
         if path == "/v1/ws" and self.headers.get("Upgrade", "").lower() == "websocket":
             self._handle_websocket()
@@ -357,6 +365,9 @@ class UnifiedGeminiHandler(GeminiHandler):
             _MAX_JOBS.release()
 
     def _handle_websocket(self):
+        if self._rate_limited():
+            self.send_error(429, "Rate limit exceeded")
+            return
         if not self._authorized():
             self.send_error(401, "Unauthorized")
             return
@@ -424,6 +435,8 @@ class UnifiedGeminiHandler(GeminiHandler):
             raise ValueError("fragmented WebSocket frames are not supported")
         opcode = b1 & 0x0F
         masked = bool(b2 & 0x80)
+        if not masked:
+            raise ValueError("client WebSocket frames must be masked")
         length = b2 & 0x7F
         if length == 126:
             length = struct.unpack("!H", self.rfile.read(2))[0]
