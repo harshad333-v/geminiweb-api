@@ -359,4 +359,6 @@ PDF extraction requires `pip install '.[pdf]'`; XLSX extraction requires `pip in
 - Image generation/editing are routed through a configurable OpenAI-compatible provider; without one, the API returns HTTP 501 rather than fabricating output.
 - WebSocket chat is a lightweight application-level protocol, not an upstream Gemini WebSocket implementation. Existing SSE endpoints remain available.
 
+Persistent conversation sessions are available through `/v1/sessions`; pass `session_id` on non-streaming chat requests to append turns to saved history.
+
 See [docs/unified-api.md](docs/unified-api.md) for the full contract and current limitations.
