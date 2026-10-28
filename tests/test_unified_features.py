@@ -68,10 +68,6 @@ class SecurityHelperTests(unittest.TestCase):
             self.assertEqual(open(result["path"], "rb").read(), b"hello")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SessionStorageTests(unittest.TestCase):
     def test_session_round_trip_is_owner_scoped(self):
         with tempfile.TemporaryDirectory() as root:
@@ -92,3 +88,7 @@ class SessionStorageTests(unittest.TestCase):
                     os.environ.pop("GEMINI_WEB2API_DB_PATH", None)
                 else:
                     os.environ["GEMINI_WEB2API_DB_PATH"] = old_path
+
+
+if __name__ == "__main__":
+    unittest.main()
