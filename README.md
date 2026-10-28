@@ -304,3 +304,59 @@ MIT
 [![GenericAgent](https://img.shields.io/badge/Agent_Framework-GenericAgent-orange?style=for-the-badge&logo=github)](https://github.com/lsdefine/GenericAgent)
 [![LinuxDo](https://img.shields.io/badge/社区-LinuxDo-blue?style=for-the-badge)](https://linux.do/)
 # geminiweb-api
+
+
+## Unified API extensions (feature branch)
+
+The unified handler adds health checks, capability discovery, bounded request bodies, local-only unauthenticated access, document uploads/extraction, asynchronous extraction jobs, and an application-level WebSocket chat protocol. Existing chat completions, Responses, and Google-native routes continue to use the existing handlers.
+
+### New endpoints
+
+| Endpoint | Description |
+| --- | --- |
+| `GET /health` | Liveness check (no provider call) |
+| `GET /ready` | Basic process/config readiness check |
+| `GET /v1/capabilities` | Lists supported and unavailable capabilities |
+| `POST /v1/files` | Stores a file from JSON text or base64 content |
+| `POST /v1/extractions` | Extracts TXT, MD, CSV, JSON, PDF, DOCX, or XLSX |
+| `GET /v1/jobs/{id}` | Reads asynchronous extraction job status/result |
+| `DELETE /v1/jobs/{id}` | Requests cancellation of an active job |
+| `POST /v1/images/generations` | Returns a clear capability error until a provider is configured |
+| `POST /v1/images/edits` | Returns a clear capability error until a provider is configured |
+| `WS /v1/ws` | JSON event protocol for realtime chat requests |
+
+### Upload and extraction examples
+
+Files are sent as JSON; use base64 for binary files:
+
+```bash
+curl http://localhost:8081/v1/files \
+  -H 'Authorization: Bearer YOUR_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"filename":"notes.txt","content":"Hello document"}'
+```
+
+Extract inline content:
+
+```bash
+curl http://localhost:8081/v1/extractions \
+  -H 'Authorization: Bearer YOUR_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"filename":"records.csv","content":"name,score\nAda,98\n"}'
+```
+
+Set `"async": true` on an extraction request to receive a job ID. Job records are currently held in process memory, so they are not durable across restarts and are not shared between multiple replicas. Uploaded files are stored under `./data/uploads` by default; set `GEMINI_WEB2API_UPLOAD_DIR` to change this location.
+
+PDF extraction requires `pip install '.[pdf]'`; XLSX extraction requires `pip install '.[xlsx]'`. Install both with `pip install '.[documents]'`. OCR for scanned PDFs is not included.
+
+### Public deployment safety
+
+- Configure non-empty, unique API keys before exposing the service publicly.
+- With no API keys configured, non-loopback requests are rejected unless `allow_unauthenticated_remote` is explicitly enabled. Do not enable that option on public deployments.
+- Request, upload, and WebSocket message sizes are bounded by configuration.
+- Configure `cors_origins` to the exact web-app origins you trust.
+- Put public deployments behind HTTPS and a reverse proxy with additional abuse protection.
+- Image generation/editing is not implemented until a real provider is configured; the API returns HTTP 501 rather than fabricating output.
+- WebSocket chat is a lightweight application-level protocol, not an upstream Gemini WebSocket implementation. Existing SSE endpoints remain available.
+
+See [docs/unified-api.md](docs/unified-api.md) for the full contract and current limitations.
