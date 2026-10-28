@@ -3,6 +3,7 @@
 The original handler remains responsible for existing chat/Responses/Google routes.
 """
 import base64
+import collections
 import hashlib
 import json
 import os
@@ -29,6 +30,9 @@ _UPLOAD_ROOT = Path(os.environ.get("GEMINI_WEB2API_UPLOAD_DIR", "./data/uploads"
 _JOBS = {}
 _JOBS_LOCK = threading.Lock()
 _MAX_JOBS = threading.BoundedSemaphore(4)
+_REQUEST_TIMES = collections.defaultdict(collections.deque)
+_USAGE_TOTALS = collections.Counter()
+_USAGE_LOCK = threading.Lock()
 
 
 def _error(message, code="invalid_request_error"):
@@ -132,6 +136,21 @@ class UnifiedGeminiHandler(GeminiHandler):
             return None
         return req
 
+    def _rate_limited(self):
+        """Simple per-identity sliding-window limiter for a single process."""
+        identity = self._identity()
+        now = time.time()
+        limit = max(1, int(CONFIG.get("max_requests_per_minute", 60)))
+        with _USAGE_LOCK:
+            events = _REQUEST_TIMES[identity]
+            while events and events[0] <= now - 60:
+                events.popleft()
+            if len(events) >= limit:
+                return True
+            events.append(now)
+            _USAGE_TOTALS[identity] += 1
+            return False
+
     def do_OPTIONS(self):
         origin = self.headers.get("Origin", "")
         allowed = CONFIG.get("cors_origins", ["http://localhost", "http://127.0.0.1"])
@@ -150,6 +169,21 @@ class UnifiedGeminiHandler(GeminiHandler):
             return
         if path == "/ready":
             self.send_json({"status": "ready", "provider": "gemini-web", "model_count": len(MODELS)})
+            return
+        if path.startswith("/v1/") and path != "/v1/ws" and not self._rate_limited():
+            pass
+        elif path.startswith("/v1/") and path != "/v1/ws":
+            self.send_json(_error("rate limit exceeded", "rate_limit_error"), 429)
+            return
+        if path == "/v1/usage":
+            if not self._authorized():
+                self.send_json(_error("invalid api key", "authentication_error"), 401)
+                return
+            identity = self._identity()
+            with _USAGE_LOCK:
+                self.send_json({"object": "usage", "requests_total": _USAGE_TOTALS[identity],
+                                "requests_last_minute": len(_REQUEST_TIMES[identity]),
+                                "limit_per_minute": int(CONFIG.get("max_requests_per_minute", 60))})
             return
         if path == "/v1/capabilities":
             if not self._authorized():
@@ -179,6 +213,17 @@ class UnifiedGeminiHandler(GeminiHandler):
 
     def do_POST(self):
         path = urlsplit(self.path).path
+        if path.startswith("/v1/") and self._rate_limited():
+            self.send_json(_error("rate limit exceeded", "rate_limit_error"), 429)
+            return
+        raw_length = self.headers.get("Content-Length", "0")
+        try:
+            if int(raw_length) > int(CONFIG.get("max_request_bytes", MAX_BODY_DEFAULT)):
+                self.send_json(_error("request body exceeds configured limit"), 413)
+                return
+        except ValueError:
+            self.send_json(_error("invalid Content-Length"), 400)
+            return
         if path not in ("/v1/files", "/v1/extractions", "/v1/images/generations", "/v1/images/edits"):
             super().do_POST()
             return
@@ -206,6 +251,9 @@ class UnifiedGeminiHandler(GeminiHandler):
 
     def do_DELETE(self):
         path = urlsplit(self.path).path
+        if self._rate_limited():
+            self.send_json(_error("rate limit exceeded", "rate_limit_error"), 429)
+            return
         if not path.startswith("/v1/jobs/"):
             self.send_json(_error("not found", "not_found_error"), 404)
             return
