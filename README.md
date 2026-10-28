@@ -356,7 +356,7 @@ PDF extraction requires `pip install '.[pdf]'`; XLSX extraction requires `pip in
 - Request, upload, and WebSocket message sizes are bounded by configuration.
 - Configure `cors_origins` to the exact web-app origins you trust.
 - Put public deployments behind HTTPS and a reverse proxy with additional abuse protection.
-- Image generation/editing is not implemented until a real provider is configured; the API returns HTTP 501 rather than fabricating output.
+- Image generation/editing are routed through a configurable OpenAI-compatible provider; without one, the API returns HTTP 501 rather than fabricating output.
 - WebSocket chat is a lightweight application-level protocol, not an upstream Gemini WebSocket implementation. Existing SSE endpoints remain available.
 
 See [docs/unified-api.md](docs/unified-api.md) for the full contract and current limitations.
