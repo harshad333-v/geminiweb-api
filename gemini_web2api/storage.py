@@ -51,7 +51,7 @@ def create_session(owner_id, title="New conversation"):
 
 
 def list_sessions(owner_id):
-    with _connect() as connection:
+    with closing(_connect()) as connection:
         _initialize(connection)
         rows = connection.execute(
             "SELECT id, title, created_at, updated_at FROM sessions WHERE owner_id=? ORDER BY updated_at DESC",
@@ -62,7 +62,7 @@ def list_sessions(owner_id):
 
 
 def get_session(owner_id, session_id):
-    with _connect() as connection:
+    with closing(_connect()) as connection:
         _initialize(connection)
         row = connection.execute(
             "SELECT id, title, messages_json, created_at, updated_at FROM sessions WHERE id=? AND owner_id=?",
@@ -76,7 +76,7 @@ def get_session(owner_id, session_id):
 
 
 def append_messages(owner_id, session_id, messages):
-    with _connect() as connection:
+    with closing(_connect()) as connection:
         _initialize(connection)
         connection.execute("BEGIN IMMEDIATE")
         row = connection.execute(
@@ -97,7 +97,7 @@ def append_messages(owner_id, session_id, messages):
 
 
 def delete_session(owner_id, session_id):
-    with _connect() as connection:
+    with closing(_connect()) as connection:
         _initialize(connection)
         cursor = connection.execute("DELETE FROM sessions WHERE id=? AND owner_id=?", (session_id, owner_id))
         deleted = cursor.rowcount > 0
