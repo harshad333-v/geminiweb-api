@@ -20,6 +20,7 @@ from .config import CONFIG
 from .documents import DocumentError, extract_document
 from .gemini import generate
 from .models import MODELS, resolve_model
+from .image_provider import ImageProviderError, edit_image, generate_image
 from .security import decode_file_content, safe_filename, save_upload
 from .server import GeminiHandler
 
@@ -168,6 +169,7 @@ class UnifiedGeminiHandler(GeminiHandler):
                 self.send_json(_error("job not found", "not_found_error"), 404)
             else:
                 snapshot.pop("owner_key", None)
+                snapshot.pop("owner_id", None)
                 self.send_json(snapshot)
             return
         if path == "/v1/ws" and self.headers.get("Upgrade", "").lower() == "websocket":
@@ -191,9 +193,12 @@ class UnifiedGeminiHandler(GeminiHandler):
                 self._create_file(req)
             elif path == "/v1/extractions":
                 self._create_extraction(req)
-            else:
-                self.send_json(_error("image operation is unavailable: configure a verified image provider",
-                                      "capability_error"), 501)
+            elif path == "/v1/images/generations":
+                self.send_json(generate_image(req))
+            elif path == "/v1/images/edits":
+                self.send_json(edit_image(req))
+        except ImageProviderError as exc:
+            self.send_json(_error(str(exc), "provider_error"), exc.status)
         except (ValueError, DocumentError) as exc:
             self.send_json(_error(str(exc)), 400)
         except Exception as exc:
