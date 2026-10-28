@@ -5,8 +5,7 @@ import os
 from .config import CONFIG, load_config, find_config
 from .models import MODELS
 from .gemini import HAS_HTTPX
-from .server import ThreadedServer
-from .unified_server import UnifiedGeminiHandler
+from .unified_server import UnifiedGeminiHandler, UnifiedThreadedServer
 from . import __version__
 
 
@@ -31,7 +30,7 @@ def main():
         CONFIG["proxy"] = args.proxy
 
     port = CONFIG["port"]
-    server = ThreadedServer((CONFIG["host"], port), UnifiedGeminiHandler)
+    server = UnifiedThreadedServer((CONFIG["host"], port), UnifiedGeminiHandler)
     print(f"gemini-web2api v{__version__}")
     print(f"  Listening: {CONFIG['host']}:{port}")
     print(f"  Base URL:  http://localhost:{port}/v1")
