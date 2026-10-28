@@ -21,6 +21,8 @@ DEFAULT_CONFIG = {
     "max_request_bytes": 10485760,
     "max_upload_bytes": 10485760,
     "max_websocket_message_bytes": 1048576,
+    "max_image_fetch_bytes": 10485760,
+    "max_requests_per_minute": 60,
     "cors_origins": ["http://localhost", "http://127.0.0.1"],
 }
 
