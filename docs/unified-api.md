@@ -24,6 +24,10 @@ For public deployment, configure API keys, HTTPS termination, a trusted CORS all
 | GET | `/v1/models` | Existing model listing |
 | GET | `/v1/capabilities` | Capability metadata |
 | GET | `/v1/usage` | Per-identity request counts for this process |
+| GET | `/v1/sessions` | List the caller's saved sessions |
+| POST | `/v1/sessions` | Create a saved conversation session |
+| GET | `/v1/sessions/{id}` | Read a caller-owned session |
+| DELETE | `/v1/sessions/{id}` | Delete a caller-owned session |
 | POST | `/v1/chat/completions` | Existing OpenAI-compatible chat |
 | POST | `/v1/responses` | Existing Responses API |
 | POST | `/v1/files` | Store UTF-8 text or base64 file content |
@@ -75,6 +79,10 @@ Set `GEMINI_WEB2API_IMAGE_BASE_URL` to an OpenAI-compatible image API provider r
 
 For edits, this API accepts JSON with `prompt`, `image_base64`, optional `filename`, and supported provider fields, then converts the image to multipart form data upstream. This is a convenience extension; it is not identical to OpenAI's multipart client request format. Provider-specific support and billing apply.
 
+## Persistent chat sessions
+
+Create a session with `POST /v1/sessions` and optional JSON `{"title":"Project notes"}`. Use the returned `sess_...` identifier on a non-streaming `POST /v1/chat/completions` request via the additional `session_id` field. Send only the new turn's `messages`; the server prepends saved history and stores the new messages plus assistant response after a successful completion. Streaming session requests are currently rejected. Sessions are stored in SQLite at `./data/gemini-web2api.sqlite3` by default; override with `GEMINI_WEB2API_DB_PATH`. Every session is scoped to the API key identity that created it.
+
 ## WebSocket protocol
 
 Connect to `/v1/ws` with the same API key in the `Authorization: Bearer ...` header.
@@ -102,7 +110,7 @@ The server responds with a JSON `pong`, `chat.completion`, or `error` event. Thi
 
 - Request rate limits, usage totals, and job state are in process memory. They reset on restart and are not coordinated across replicas.
 - Uploaded files persist on local disk and include per-key ownership metadata; define retention/cleanup for production.
-- No persistent chat-session store, shared distributed quotas, admin dashboard, OCR worker, or multi-replica job broker is included yet.
+- Job state, request quotas, and usage counters are in process memory; they reset on restart and are not coordinated across replicas. No admin dashboard, OCR worker, or multi-replica job broker is included yet.
 - Image generation/editing require an independently configured provider; Gemini Web itself is not assumed to support these operations.
 - The API uses a reverse-engineered Gemini Web integration. Upstream changes, account restrictions, and quotas can affect availability.
 - The upstream image URL fetch path now rejects non-global IP destinations, validates redirects, and caps response size. DNS rebinding and proxy-specific routing still require deployment-level controls; do not treat this as a substitute for an egress firewall.
