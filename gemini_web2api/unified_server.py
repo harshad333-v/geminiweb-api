@@ -23,6 +23,7 @@ from .gemini import generate, log
 from .models import MODELS, resolve_model
 from .image_provider import ImageProviderError, edit_image, generate_image
 from .security import decode_file_content, safe_filename, save_upload
+from .storage import append_messages, create_session, delete_session, get_session, list_sessions
 from .server import GeminiHandler, ThreadedServer
 
 MAX_BODY_DEFAULT = 10 * 1024 * 1024
@@ -70,6 +71,15 @@ class UnifiedGeminiHandler(GeminiHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+        capture = getattr(self, "_session_capture", None)
+        if capture and status < 400 and isinstance(data, dict) and data.get("object") == "chat.completion":
+            choices = data.get("choices") or []
+            if choices and isinstance(choices[0].get("message"), dict):
+                try:
+                    append_messages(capture["owner_id"], capture["session_id"],
+                                    capture["new_messages"] + [choices[0]["message"]])
+                except Exception as exc:
+                    log("Session persistence error: " + type(exc).__name__)
 
     def _authorized(self):
         keys = CONFIG.get("api_keys") or []
@@ -175,6 +185,22 @@ class UnifiedGeminiHandler(GeminiHandler):
         elif path.startswith("/v1/") and path != "/v1/ws":
             self.send_json(_error("rate limit exceeded", "rate_limit_error"), 429)
             return
+        if path == "/v1/sessions":
+            if not self._authorized():
+                self.send_json(_error("invalid api key", "authentication_error"), 401)
+                return
+            self.send_json({"object": "list", "data": list_sessions(self._identity())})
+            return
+        if path.startswith("/v1/sessions/"):
+            if not self._authorized():
+                self.send_json(_error("invalid api key", "authentication_error"), 401)
+                return
+            session = get_session(self._identity(), path.rsplit("/", 1)[-1])
+            if not session:
+                self.send_json(_error("session not found", "not_found_error"), 404)
+            else:
+                self.send_json(session)
+            return
         if path == "/v1/usage":
             if not self._authorized():
                 self.send_json(_error("invalid api key", "authentication_error"), 401)
@@ -219,6 +245,34 @@ class UnifiedGeminiHandler(GeminiHandler):
             return
         super().do_GET()
 
+    def _handle_chat(self, body):
+        req = self._parse_body(body)
+        if not isinstance(req, dict) or not req.get("session_id"):
+            return super()._handle_chat(body)
+        session_id = req.get("session_id")
+        if req.get("stream"):
+            self.send_json(_error("streaming with session_id is not supported yet"), 400)
+            return
+        session = get_session(self._identity(), session_id)
+        if not session:
+            self.send_json(_error("session not found", "not_found_error"), 404)
+            return
+        new_messages = req.get("messages", [])
+        if not isinstance(new_messages, list):
+            self.send_json(_error("messages must be a list"), 400)
+            return
+        req["messages"] = session["messages"] + new_messages
+        req.pop("session_id", None)
+        self._session_capture = {
+            "session_id": session_id,
+            "owner_id": self._identity(),
+            "new_messages": new_messages,
+        }
+        try:
+            return super()._handle_chat(json.dumps(req, ensure_ascii=False).encode("utf-8"))
+        finally:
+            self._session_capture = None
+
     def do_POST(self):
         path = urlsplit(self.path).path
         api_path = path.startswith("/v1")
@@ -243,7 +297,14 @@ class UnifiedGeminiHandler(GeminiHandler):
             self.send_json(_error(str(exc)), status)
             return
         try:
-            if path == "/v1/files":
+            if path == "/v1/sessions":
+                req = self._parse_body(body)
+                if not isinstance(req, dict):
+                    self.send_json(_error("request body must be a valid JSON object"), 400)
+                else:
+                    session = create_session(self._identity(), req.get("title", "New conversation"))
+                    self.send_json(session, 201)
+            elif path == "/v1/files":
                 req = self._parse_body(body)
                 if not isinstance(req, dict):
                     self.send_json(_error("request body must be a valid JSON object"), 400)
@@ -291,6 +352,16 @@ class UnifiedGeminiHandler(GeminiHandler):
         path = urlsplit(self.path).path
         if self._rate_limited():
             self.send_json(_error("rate limit exceeded", "rate_limit_error"), 429)
+            return
+        if not self._authorized():
+            self.send_json(_error("invalid api key", "authentication_error"), 401)
+            return
+        if path.startswith("/v1/sessions/"):
+            session_id = path.rsplit("/", 1)[-1]
+            if delete_session(self._identity(), session_id):
+                self.send_json({"id": session_id, "deleted": True})
+            else:
+                self.send_json(_error("session not found", "not_found_error"), 404)
             return
         if not path.startswith("/v1/jobs/"):
             self.send_json(_error("not found", "not_found_error"), 404)
