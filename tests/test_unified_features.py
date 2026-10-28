@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 from gemini_web2api.documents import DocumentError, extract_document
-from gemini_web2api.security import decode_file_content, safe_filename, save_upload
+from gemini_web2api.security import decode_file_content, safe_filename, save_upload\nfrom gemini_web2api.multimodal import _validate_public_image_url\nfrom gemini_web2api.image_provider import ImageProviderError, generate_image
 
 
 class DocumentExtractionTests(unittest.TestCase):
@@ -41,6 +41,21 @@ class SecurityHelperTests(unittest.TestCase):
 
     def test_filename_drops_paths(self):
         self.assertEqual(safe_filename("../../hello.txt"), "hello.txt")
+
+    def test_private_image_urls_are_rejected(self):
+        with self.assertRaises(ValueError):
+            _validate_public_image_url("http://127.0.0.1/private.png")
+
+    def test_image_generation_requires_configured_provider(self):
+        import os
+        previous = os.environ.pop("GEMINI_WEB2API_IMAGE_BASE_URL", None)
+        try:
+            with self.assertRaises(ImageProviderError) as error:
+                generate_image({"prompt": "test"})
+            self.assertEqual(error.exception.status, 501)
+        finally:
+            if previous is not None:
+                os.environ["GEMINI_WEB2API_IMAGE_BASE_URL"] = previous
 
     def test_upload_uses_generated_id(self):
         with tempfile.TemporaryDirectory() as root:
