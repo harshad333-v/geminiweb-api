@@ -202,7 +202,7 @@ def extract_response_text(raw: str) -> str:
     return clean_text(last_text)
 
 
-def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None, extra_fields: dict = None) -> str:
+def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None, extra_fields: dict = None, return_raw: bool = False) -> str:
     """Non-streaming generation with retry."""
     body = _build_payload(prompt, model_id, think_mode, file_refs, extra_fields).encode()
     url = _get_url()
@@ -223,7 +223,7 @@ def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None
             else:
                 resp = urllib.request.urlopen(req, context=ctx, timeout=CONFIG["request_timeout_sec"])
             raw = resp.read().decode("utf-8", errors="replace")
-            return extract_response_text(raw)
+            return raw if return_raw else extract_response_text(raw)
         except Exception as e:
             last_err = e
             if attempt < CONFIG["retry_attempts"] - 1:
