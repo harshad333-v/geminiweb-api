@@ -68,7 +68,7 @@ class SecurityHelperTests(unittest.TestCase):
 
         # Gemini StreamGenerate uses length-prefixed frames with an anti-XSSI prefix.
         frame_length = len(frame.encode("utf-16-le")) // 2
-        framed = ")]}'\\n" + str(frame_length) + "\\n" + frame
+        framed = ")]}'\n" + str(frame_length) + "\n" + frame
         self.assertEqual(image_provider._generated_image_urls(framed), [image_url])
 
     def test_native_gemini_web_backend_returns_openai_image_shape(self):
