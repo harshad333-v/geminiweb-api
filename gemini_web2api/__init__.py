@@ -1,2 +1,2 @@
-"""gemini-web2api: Gemini Web to OpenAI API proxy."""
-__version__ = "1.1.0"
+"""gemini-web2api: unified OpenAI-compatible AI API gateway."""
+__version__ = "1.2.0"

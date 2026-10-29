@@ -43,7 +43,7 @@ try:
 except ImportError:
     HAS_HTTPX = False
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -1054,54 +1054,9 @@ def load_config(path: str):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Gemini Web to OpenAI API")
-    parser.add_argument("--port", type=int, default=None)
-    parser.add_argument("--config", type=str, default=None)
-    parser.add_argument("--cookie-file", type=str, default=None, help="Path to cookie file")
-    parser.add_argument("--proxy", type=str, default=None, help="HTTP proxy, e.g. http://127.0.0.1:7890")
-    parser.add_argument("--version", action="version", version=f"gemini-web2api {__version__}")
-    args = parser.parse_args()
-
-    config_path = args.config or os.environ.get("GEMINI_WEB2API_CONFIG")
-    if not config_path:
-        for p in ["./config.json", os.path.expanduser("~/.config/gemini-web2api/config.json")]:
-            if os.path.exists(p):
-                config_path = p
-                break
-    load_config(config_path)
-
-    if args.port:
-        CONFIG["port"] = args.port
-    if args.cookie_file:
-        CONFIG["cookie_file"] = args.cookie_file
-    if args.proxy:
-        CONFIG["proxy"] = args.proxy
-
-    new_bl = fetch_latest_bl()
-    if new_bl:
-        CONFIG["gemini_bl"] = new_bl
-
-    class ThreadedServer(ThreadingMixIn, HTTPServer):
-        daemon_threads = True
-        allow_reuse_address = True
-
-    port = CONFIG["port"]
-    server = ThreadedServer((CONFIG["host"], port), GeminiHandler)
-    print(f"gemini-web2api v{__version__}")
-    print(f"  Listening: http://0.0.0.0:{port}")
-    print(f"  Base URL:  http://localhost:{port}/v1")
-    print(f"  Models:    {', '.join(MODELS.keys())}")
-    print(f"  Cookie:    {'yes (' + CONFIG['cookie_file'] + ')' if CONFIG.get('cookie_file') else 'none (anonymous)'}")
-    print(f"  Proxy:     {CONFIG.get('proxy') or 'none (uses system env HTTP_PROXY/HTTPS_PROXY)'}")
-    print(f"  Retry:     {CONFIG['retry_attempts']}x / {CONFIG['retry_delay_sec']}s")
-    print(f"  BL:        {CONFIG['gemini_bl']}")
-    print(f"  Temporary: {'yes' if CONFIG.get('temporary_chats', False) else 'no'}")
-    print()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nStopped.")
-        server.shutdown()
+    """Compatibility entry point; delegate to the maintained modular server."""
+    from gemini_web2api.__main__ import main as modular_main
+    return modular_main()
 
 
 if __name__ == "__main__":

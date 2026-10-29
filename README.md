@@ -10,7 +10,7 @@ Convert Google Gemini's web interface into an OpenAI-compatible API. Zero cost, 
 
 ## Features
 
-- **Optional API Keys**: no auth when `api_keys` is empty, OpenAI-style Bearer auth when configured
+- **API Security**: API-key auth when configured; with no keys, unified API routes are loopback-only by default
 - **OpenAI Compatible**: Drop-in replacement for `/v1/chat/completions` and `/v1/models`
 - **Tool Calling**: Full function calling support (OpenAI format)
 - **Multiple Models**: Flash (3.6), Extended Thinking (20k+ char output), Pro, Auto, Lite
@@ -28,7 +28,7 @@ pip install httpx
 python gemini_web2api.py
 ```
 
-Server starts at `http://localhost:8081/v1`.
+Server starts at `http://localhost:8081/v1`. The default bind address is loopback-only for local development. See [Unified API setup and endpoint guide](docs/unified-api.md) before exposing the server to a network.
 
 ## Client Configuration
 
@@ -37,7 +37,7 @@ Server starts at `http://localhost:8081/v1`.
 | Field | Value |
 |-------|-------|
 | Base URL | `http://localhost:8081/v1` |
-| API Key | any `api_keys` value from `config.json`; anything if not configured |
+| API Key | a configured `api_keys` value; use a placeholder only for loopback-only local development |
 | Model | `gemini-3.5-flash-thinking` |
 
 ### curl
@@ -182,7 +182,7 @@ Create `config.json` in the same directory:
 Set `temporary_chats` to `true` to use Gemini Web temporary chats instead of
 persisting conversations to the account history.
 
-When `api_keys` is `[]`, authentication is disabled. When one or more keys are set, `/v1/*` endpoints require `Authorization: Bearer <key>` or `x-api-key: <key>`.
+When `api_keys` is `[]`, the unified server permits API access only from loopback clients unless you explicitly enable remote unauthenticated access (not recommended). For a network-accessible deployment, configure unique API keys using `GEMINI_WEB2API_API_KEYS` or `config.json`, and put the service behind HTTPS. Never expose the service with an empty key list.
 
 ## Docker
 
@@ -304,3 +304,84 @@ MIT
 [![GenericAgent](https://img.shields.io/badge/Agent_Framework-GenericAgent-orange?style=for-the-badge&logo=github)](https://github.com/lsdefine/GenericAgent)
 [![LinuxDo](https://img.shields.io/badge/社区-LinuxDo-blue?style=for-the-badge)](https://linux.do/)
 # geminiweb-api
+
+
+## Unified API extensions (feature branch)
+
+The unified handler adds health checks, capability discovery, bounded request bodies, local-only unauthenticated access, document uploads/extraction, asynchronous extraction jobs, and an application-level WebSocket chat protocol. Existing chat completions, Responses, and Google-native routes continue to use the existing handlers.
+
+### New endpoints
+
+| Endpoint | Description |
+| --- | --- |
+| `GET /health` | Liveness check (no provider call) |
+| `GET /ready` | Basic process/config readiness check |
+| `GET /v1/capabilities` | Lists supported and unavailable capabilities |
+| `POST /v1/files` | Stores a file from JSON text or base64 content |
+| `POST /v1/extractions` | Extracts TXT, MD, CSV, JSON, PDF, DOCX, or XLSX |
+| `GET /v1/jobs/{id}` | Reads asynchronous extraction job status/result |
+| `DELETE /v1/jobs/{id}` | Requests cancellation of an active job |
+| `POST /v1/images/generations` | Returns a clear capability error until a provider is configured |
+| `POST /v1/images/edits` | Returns a clear capability error until a provider is configured |
+| `WS /v1/ws` | JSON event protocol for realtime chat requests |
+
+### Upload and extraction examples
+
+Files are sent as JSON; use base64 for binary files:
+
+```bash
+curl http://localhost:8081/v1/files \
+  -H 'Authorization: Bearer YOUR_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"filename":"notes.txt","content":"Hello document"}'
+```
+
+Extract inline content:
+
+```bash
+curl http://localhost:8081/v1/extractions \
+  -H 'Authorization: Bearer YOUR_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"filename":"records.csv","content":"name,score\nAda,98\n"}'
+```
+
+Set `"async": true` on an extraction request to receive a job ID. Job records are currently held in process memory, so they are not durable across restarts and are not shared between multiple replicas. Uploaded files are stored under `./data/uploads` by default; set `GEMINI_WEB2API_UPLOAD_DIR` to change this location.
+
+PDF extraction requires `pip install '.[pdf]'`; XLSX extraction requires `pip install '.[xlsx]'`. Install both with `pip install '.[documents]'`. OCR for scanned PDFs is not included.
+
+### Public deployment safety
+
+- Configure non-empty, unique API keys before exposing the service publicly.
+- With no API keys configured, non-loopback requests are rejected unless `allow_unauthenticated_remote` is explicitly enabled. Do not enable that option on public deployments.
+- Request, upload, and WebSocket message sizes are bounded by configuration.
+- Configure `cors_origins` to the exact web-app origins you trust.
+- Put public deployments behind HTTPS and a reverse proxy with additional abuse protection.
+- Image generation/editing are routed through a configurable OpenAI-compatible provider; without one, the API returns HTTP 501 rather than fabricating output.
+- WebSocket chat is a lightweight application-level protocol, not an upstream Gemini WebSocket implementation. Existing SSE endpoints remain available.
+
+Persistent conversation sessions are available through `/v1/sessions`; pass `session_id` on non-streaming chat requests to append turns to saved history.
+
+See [docs/unified-api.md](docs/unified-api.md) for the full contract and current limitations.
+
+
+## Unified API extensions (feature branch)
+
+The `feature/unified-ai-api-v1` branch adds document upload/extraction, SQLite-backed chat sessions, capabilities and usage endpoints, health/readiness checks, a basic JSON WebSocket protocol, and optional OpenAI-compatible image-provider forwarding. These extensions are documented in [docs/unified-api.md](docs/unified-api.md).
+
+### Windows local setup (PowerShell)
+
+```powershell
+git clone https://github.com/harshad333-v/geminiweb-api.git
+Set-Location geminiweb-api
+git switch feature/unified-ai-api-v1
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[streaming,documents,dev]"
+Copy-Item config.example.json config.json
+python -m compileall -q gemini_web2api
+python -m unittest discover -s tests -v
+python -m gemini_web2api --config config.json
+```
+
+In a second PowerShell window, check `http://127.0.0.1:8081/health` and `http://127.0.0.1:8081/ready`. With the example config, API calls are restricted to loopback and no API key is configured. To enable API-key auth, set `GEMINI_WEB2API_API_KEYS` to a long, unique secret before starting the server. Image generation/editing remain unavailable until an OpenAI-compatible image provider is configured. A successful unit test run does not verify live Gemini upstream access; test a real chat request separately.

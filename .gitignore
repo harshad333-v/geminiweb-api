@@ -7,3 +7,22 @@ cookie.json
 .idea
 .DS_Store
 gemini-auth.json
+# Local Python environment and build metadata
+.venv/
+venv/
+*.egg-info/
+
+# Local runtime data and uploaded files
+data/
+
+# Local document extraction test artifacts
+sample.txt
+sample.csv
+sample.docx
+sample.json
+sample.md
+sample.pdf
+sample.xlsx
+create_docx_test.py
+create_pdf_test.py
+create_xlsx_test.py

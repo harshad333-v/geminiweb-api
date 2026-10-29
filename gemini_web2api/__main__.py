@@ -5,12 +5,12 @@ import os
 from .config import CONFIG, load_config, find_config
 from .models import MODELS
 from .gemini import HAS_HTTPX
-from .server import GeminiHandler, ThreadedServer
+from .unified_server import UnifiedGeminiHandler, UnifiedThreadedServer
 from . import __version__
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Gemini Web to OpenAI API")
+    parser = argparse.ArgumentParser(description="Gemini Web to OpenAI-compatible API")
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--config", type=str, default=None)
     parser.add_argument("--cookie-file", type=str, default=None)
@@ -30,21 +30,23 @@ def main():
         CONFIG["proxy"] = args.proxy
 
     port = CONFIG["port"]
-    server = ThreadedServer((CONFIG["host"], port), GeminiHandler)
+    server = UnifiedThreadedServer((CONFIG["host"], port), UnifiedGeminiHandler)
     print(f"gemini-web2api v{__version__}")
-    print(f"  Listening: http://0.0.0.0:{port}")
+    print(f"  Listening: {CONFIG['host']}:{port}")
     print(f"  Base URL:  http://localhost:{port}/v1")
     print(f"  Models:    {', '.join(MODELS.keys())}")
     print(f"  Cookie:    {'yes' if CONFIG.get('cookie_file') else 'none (anonymous)'}")
     print(f"  Proxy:     {CONFIG.get('proxy') or 'system env'}")
     print(f"  Streaming: {'httpx (true streaming)' if HAS_HTTPX else 'urllib (buffered)'}")
     print(f"  Temporary: {'yes' if CONFIG.get('temporary_chats', False) else 'no'}")
+    print(f"  Public auth: {'API keys configured' if CONFIG.get('api_keys') else 'loopback-only without API keys'}")
     print()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopped.")
         server.shutdown()
+        server.server_close()
 
 
 if __name__ == "__main__":
