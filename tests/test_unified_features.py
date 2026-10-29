@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from gemini_web2api.documents import DocumentError, extract_document
 from gemini_web2api.security import decode_file_content, safe_filename, save_upload
@@ -64,6 +65,25 @@ class SecurityHelperTests(unittest.TestCase):
         response[4] = [candidate]
         raw = json.dumps([["wrb.fr", None, json.dumps(response)]])
         self.assertEqual(image_provider._generated_image_urls(raw), [image_url])
+
+    def test_native_gemini_web_backend_returns_openai_image_shape(self):
+        image_url = "https://lh3.googleusercontent.com/generated-image"
+        image_item = [[None, None, None, [None, None, None, image_url]]]
+        rich_content = [None] * 8
+        rich_content[7] = [[image_item]]
+        candidate = [None] * 13
+        candidate[0] = "candidate-id"
+        candidate[12] = rich_content
+        response = [None] * 5
+        response[4] = [candidate]
+        raw = json.dumps([["wrb.fr", None, json.dumps(response)]])
+
+        with patch.dict(os.environ, {"GEMINI_WEB2API_IMAGE_BACKEND": "gemini-web"}, clear=False):
+            with patch.object(image_provider, "load_cookie", return_value=("fake-cookie", None)):
+                with patch.object(image_provider, "gemini_generate", return_value=raw):
+                    result = generate_image({"prompt": "a test image", "model": "gemini-3.6-flash"})
+        self.assertEqual(result["data"][0]["url"], image_url)
+        self.assertEqual(result["data"][0]["revised_prompt"], "a test image")
 
     def test_image_generation_requires_configured_provider(self):
         import os
