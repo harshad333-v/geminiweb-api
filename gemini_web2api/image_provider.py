@@ -5,6 +5,7 @@ No provider credentials are hard-coded or logged.
 """
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 import time
