@@ -56,15 +56,61 @@ def _field(container, index, default=None):
     return bundle.get(str(index + 1), default)
 
 
+def _iter_wrb_envelopes(raw):
+    """Yield wrb.fr envelopes from Gemini's length-prefixed or line-delimited response."""
+    if not isinstance(raw, str) or not raw:
+        return
+
+    content = raw.lstrip()
+    if content.startswith(")]}'"):
+        content = content[4:].lstrip()
+
+    decoder = json.JSONDecoder()
+
+    def visit(value):
+        if not isinstance(value, list):
+            return
+        if value and value[0] == "wrb.fr":
+            yield value
+            return
+        for child in value:
+            yield from visit(child)
+
+    # StreamGenerate normally uses length-prefixed JSON frames, not JSON-per-line.
+    # raw_decode lets us read a complete JSON frame without trusting the prefix length
+    # (which is measured in UTF-16 code units by Google's JavaScript client).
+    pos = 0
+    while pos < len(content):
+        while pos < len(content) and content[pos].isspace():
+            pos += 1
+        if pos >= len(content):
+            break
+
+        marker = re.match(r"\d+\r?\n", content[pos:])
+        if marker:
+            pos += marker.end()
+            while pos < len(content) and content[pos].isspace():
+                pos += 1
+            if pos >= len(content):
+                break
+
+        try:
+            value, end = decoder.raw_decode(content, pos)
+        except json.JSONDecodeError:
+            # A non-JSON byte/character may precede the next frame marker.
+            pos += 1
+            continue
+
+        yield from visit(value)
+        pos = end
+
+
 def _generated_image_urls(raw):
     """Extract generated-image URLs from Gemini Web's StreamGenerate response."""
     urls = []
-    for line in raw.splitlines():
-        if '"wrb.fr"' not in line:
-            continue
+    for envelope in _iter_wrb_envelopes(raw):
         try:
-            envelope = json.loads(line)
-            inner_text = _nested(envelope, [0, 2])
+            inner_text = _nested(envelope, [2])
             if not isinstance(inner_text, str):
                 continue
             response = json.loads(inner_text)
