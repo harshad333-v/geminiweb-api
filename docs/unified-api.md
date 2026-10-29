@@ -9,7 +9,8 @@ Use a JSON config file for core settings and environment variables for secrets:
 - `GEMINI_WEB2API_API_KEYS`: comma-separated public API keys; takes precedence over the JSON list.
 - `GEMINI_WEB2API_HOST`, `GEMINI_WEB2API_PORT`: bind host and port.
 - `GEMINI_WEB2API_UPLOAD_DIR`: upload storage directory (default `./data/uploads`).
-- `GEMINI_WEB2API_IMAGE_BASE_URL`: root URL of an OpenAI-compatible image provider, e.g. `https://provider.example` or `https://provider.example/v1`.
+- `GEMINI_WEB2API_IMAGE_BACKEND`: set to `gemini-web` to use the authenticated Gemini Web session for image generation/editing.
+- `GEMINI_WEB2API_IMAGE_BASE_URL`: optional root URL of an OpenAI-compatible image provider, e.g. `https://provider.example` or `https://provider.example/v1`. Used when the native backend is not selected.
 - `GEMINI_WEB2API_IMAGE_API_KEY`: optional provider credential.
 - `GEMINI_WEB2API_IMAGE_TIMEOUT_SEC`: image provider timeout, clamped to 1–300 seconds.
 
@@ -75,7 +76,7 @@ Extraction `schema` is currently returned as request metadata; it is **not** a J
 
 ## Image API
 
-Set `GEMINI_WEB2API_IMAGE_BASE_URL` to an OpenAI-compatible image API provider root, and optionally set `GEMINI_WEB2API_IMAGE_API_KEY`. Generation forwards supported fields: `model`, `prompt`, `n`, `size`, `quality`, `style`, `response_format`, and `user`.
+Set `GEMINI_WEB2API_IMAGE_BACKEND=gemini-web` to route generation through the existing authenticated Gemini Web session; the server must have a valid cookie configured. The native backend asks Gemini Web to generate/edit images and extracts returned image URLs from the StreamGenerate response. Those URLs may require an authenticated Gemini browser session and are not returned as `b64_json`. If the native backend is not selected, set `GEMINI_WEB2API_IMAGE_BASE_URL` to an OpenAI-compatible image API provider root and optionally set `GEMINI_WEB2API_IMAGE_API_KEY`. Generation forwards supported fields: `model`, `prompt`, `n`, `size`, `quality`, `style`, `response_format`, and `user`.
 
 For edits, this API accepts JSON with `prompt`, `image_base64`, optional `filename`, and supported provider fields, then converts the image to multipart form data upstream. This is a convenience extension; it is not identical to OpenAI's multipart client request format. Provider-specific support and billing apply.
 
@@ -110,6 +111,6 @@ The server responds with a JSON `pong`, `chat.completion`, or `error` event. Thi
 
 - Uploaded files persist on local disk and include per-key ownership metadata; define retention/cleanup for production.
 - Job state, request quotas, and usage counters are in process memory; they reset on restart and are not coordinated across replicas. No admin dashboard, OCR worker, or multi-replica job broker is included yet.
-- Image generation/editing require an independently configured provider; Gemini Web itself is not assumed to support these operations.
+- Gemini Web image generation is an unofficial reverse-engineered integration and may change with upstream responses, account access, or quotas. Generated image URLs may require the same authenticated browser session; base64 output is not currently supported by the native backend.
 - The API uses a reverse-engineered Gemini Web integration. Upstream changes, account restrictions, and quotas can affect availability.
 - The upstream image URL fetch path now rejects non-global IP destinations, validates redirects, and caps response size. DNS rebinding and proxy-specific routing still require deployment-level controls; do not treat this as a substitute for an egress firewall.
