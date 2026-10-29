@@ -63,8 +63,13 @@ class SecurityHelperTests(unittest.TestCase):
         candidate[12] = rich_content
         response = [None] * 5
         response[4] = [candidate]
-        raw = json.dumps([["wrb.fr", None, json.dumps(response)]])
-        self.assertEqual(image_provider._generated_image_urls(raw), [image_url])
+        frame = json.dumps([["wrb.fr", None, json.dumps(response)]])
+        self.assertEqual(image_provider._generated_image_urls(frame), [image_url])
+
+        # Gemini StreamGenerate uses length-prefixed frames with an anti-XSSI prefix.
+        frame_length = len(frame.encode("utf-16-le")) // 2
+        framed = ")]}'\\n" + str(frame_length) + "\\n" + frame
+        self.assertEqual(image_provider._generated_image_urls(framed), [image_url])
 
     def test_native_gemini_web_backend_returns_openai_image_shape(self):
         image_url = "https://lh3.googleusercontent.com/generated-image"
