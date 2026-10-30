@@ -1,5 +1,6 @@
 """Capability metadata for the unified API surface."""
 import os
+from .image_provider import configured as image_provider_configured
 CAPABILITIES = {
     "chat.completions": {"available": True, "endpoint": "/v1/chat/completions"},
     "responses": {"available": True, "endpoint": "/v1/responses"},
@@ -8,10 +9,10 @@ CAPABILITIES = {
     "files.upload": {"available": True, "endpoint": "/v1/files"},
     "sessions.persist": {"available": True, "endpoint": "/v1/sessions"},
     "usage.inspect": {"available": True, "endpoint": "/v1/usage"},
-    "images.generations": {"available": bool(os.environ.get("GEMINI_WEB2API_IMAGE_BASE_URL", "").strip()), "endpoint": "/v1/images/generations",
-                           "reason": None if os.environ.get("GEMINI_WEB2API_IMAGE_BASE_URL", "").strip() else "Set GEMINI_WEB2API_IMAGE_BASE_URL to enable image generation."},
-    "images.edits": {"available": bool(os.environ.get("GEMINI_WEB2API_IMAGE_BASE_URL", "").strip()), "endpoint": "/v1/images/edits",
-                     "reason": None if os.environ.get("GEMINI_WEB2API_IMAGE_BASE_URL", "").strip() else "Set GEMINI_WEB2API_IMAGE_BASE_URL to enable image editing."},
+    "images.generations": {"available": image_provider_configured(), "endpoint": "/v1/images/generations",
+                           "reason": None if image_provider_configured() else "Set GEMINI_WEB2API_IMAGE_BASE_URL for an external provider, or set GEMINI_WEB2API_IMAGE_BACKEND=gemini-web and configure a valid Gemini Web cookie."},
+    "images.edits": {"available": image_provider_configured(), "endpoint": "/v1/images/edits",
+                     "reason": None if image_provider_configured() else "Set GEMINI_WEB2API_IMAGE_BASE_URL for an external provider, or set GEMINI_WEB2API_IMAGE_BACKEND=gemini-web and configure a valid Gemini Web cookie."},
     "realtime.websocket": {"available": True, "endpoint": "/v1/ws"},
 }
 
